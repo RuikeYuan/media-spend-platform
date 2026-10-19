@@ -110,9 +110,15 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("run", help="run the full pipeline")
     r.add_argument("--no-fail", action="store_true", help="exit 0 even if error-level checks fail")
     sub.add_parser("reset", help="delete all generated data")
+    sub.add_parser("demo", help="write the sample delivery (incl. late file) if missing, then run")
     args = parser.parse_args(argv)
 
     settings = Settings()
+    if args.cmd == "demo":
+        # Used by the scheduled cloud job: self-contained, no external landing zone needed.
+        # Generating is idempotent (same files, same hashes), so reruns load nothing new.
+        generate(settings.landing_dir, late=True)
+        print(f"Sample delivery ready in {settings.landing_dir}")
     if args.cmd == "generate":
         paths = generate(settings.landing_dir, late=args.late)
         print(f"Wrote {len(paths)} files to {settings.landing_dir}")
@@ -125,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
         outcome = run(settings)
     except Exception:
         return 2
-    return 0 if args.no_fail else outcome.exit_code
+    return 0 if getattr(args, "no_fail", False) else outcome.exit_code
 
 
 if __name__ == "__main__":

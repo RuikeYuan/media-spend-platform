@@ -132,10 +132,26 @@ All paths come from environment variables (`MSP_DATA_DIR`, `MSP_CONFIG_DIR`,
 `MSP_SQL_DIR`), so the same image runs locally, in CI and in the cloud. The
 image runs as a non-root user and keeps all state on the mounted `/data` volume.
 
-On Azure this maps to a **Container Apps Job** on a cron schedule (for example
-hourly), with `/data` on an Azure Files share (or landing files in ADLS) and the
-run report published after each run. The exit code drives alerting: a failed
-data quality gate fails the job execution, which Azure Monitor can alert on.
+### Deploy to Azure (Container Apps Job)
+
+From [Azure Cloud Shell](https://shell.azure.com) (Bash), which already has the
+`az` CLI and is signed in:
+
+```bash
+git clone https://github.com/RuikeYuan/media-spend-platform && cd media-spend-platform
+bash deploy/azure/deploy.sh      # ~10 min the first time
+bash deploy/azure/teardown.sh    # removes everything again
+```
+
+`deploy.sh` builds the image in Azure (ACR Tasks, no local Docker), creates a
+consumption-plan Container Apps environment and a **scheduled job** that runs
+daily at 06:00 UTC, then starts one run immediately and waits for the result.
+The job's exit code is the pipeline status, so a failed data quality gate shows
+up as a failed execution that Azure Monitor can alert on.
+
+In this demo each run generates its own sample delivery (`msp demo`). In
+production the landing zone would be ADLS or an Azure Files share mounted at
+`/data`, written to by agency SFTP or API pulls.
 
 ## Design choices and trade-offs
 
