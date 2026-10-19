@@ -1,0 +1,37 @@
+# Azure DevOps pipeline: runs the same gates as scripts/ci.sh on every push / PR to main.
+# To activate: Azure DevOps → Pipelines → New pipeline → GitHub → this repo → "Existing YAML file".
+trigger:
+  branches:
+    include: [main]
+
+pr:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: "3.12"
+    displayName: Use Python 3.12
+
+  - script: pip install -e ".[dev]"
+    displayName: Install
+
+  - script: bash scripts/ci.sh
+    displayName: Lint, test, pipeline smoke run
+
+  - script: |
+      PYTHONPATH=src python -m msp.pipeline generate --late
+      PYTHONPATH=src python -m msp.pipeline run
+    displayName: Build run report
+    condition: always()
+
+  - task: PublishPipelineArtifact@1
+    condition: always()
+    inputs:
+      targetPath: data/reports/latest.html
+      artifact: pipeline-report
+    displayName: Publish run report

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Runs local CI before every `git push`; the push is aborted if anything fails.
+# Enable once per clone with: make hooks   (bypass in an emergency: git push --no-verify)
+exec "$(git rev-parse --show-toplevel)/scripts/ci.sh"

@@ -12,6 +12,7 @@ design decision maps 1:1 onto a cloud lakehouse (see *Path to production*).
 pip install -e ".[dev]"
 make demo     # first delivery → idempotent rerun → late file arrives
 make test     # 19 unit + end-to-end tests
+make hooks    # run local CI automatically before every git push
 open data/reports/latest.html
 ```
 
@@ -100,10 +101,21 @@ step. Alerts go to stdout and, if `ALERT_WEBHOOK_URL` is set, to a Teams or
 Slack incoming webhook. Each run writes a self-contained HTML report
 (`data/reports/latest.html`).
 
-### CI (`.github/workflows/ci.yml`)
+### CI
 
-Lint → unit + end-to-end tests → run the pipeline on sample data → upload the
-report. An error-level data quality failure fails the build.
+One script, `scripts/ci.sh`, defines the quality gates: **lint → unit +
+end-to-end tests → full pipeline run on fresh sample data** (in a throwaway
+directory). An error-level data quality failure fails the build.
+
+It runs in two places:
+
+- **Locally, before every push** — `make hooks` installs a git `pre-push` hook,
+  so nothing that fails the gates can reach the remote. `make ci` runs it on demand.
+- **Azure DevOps** — `azure-pipelines.yml` runs the same script on every push
+  and PR to `main` and publishes the run report as a pipeline artifact.
+
+Keeping the logic in one script means the hosted CI is a thin wrapper and can
+be swapped (Azure DevOps, GitLab CI, Jenkins) without changing the checks.
 
 ## Design choices and trade-offs
 
@@ -127,7 +139,7 @@ report. An error-level data quality failure fails the build.
 | `quality_checks.yml` | dbt tests, Great Expectations, or DLT expectations |
 | `pipeline_runs`, alerts | Monitoring dashboard + Teams / PagerDuty alerting |
 | Campaign master CSV | Governed reference data with owners; Unity Catalog for access control and lineage |
-| GitHub Actions | Same, plus deployment of jobs and IaC (Terraform / Bicep) |
+| `scripts/ci.sh` + Azure Pipelines | Same, plus deployment of jobs and IaC (Terraform / Bicep) |
 
 ## Project layout
 
@@ -136,5 +148,7 @@ config/            sources.yml (data contracts), quality_checks.yml, seeds/
 sql/gold/          dimensional model + mart
 src/msp/           generate, ingest, transform, quality, monitor, pipeline (CLI)
 tests/             quality-engine unit tests + end-to-end pipeline tests
-.github/workflows/ CI
+scripts/ci.sh      CI gates (lint, tests, pipeline smoke run)
+.githooks/         pre-push hook that runs scripts/ci.sh
+azure-pipelines.yml  hosted CI on Azure DevOps
 ```

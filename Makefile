@@ -1,10 +1,18 @@
 PY ?= python3
 export PYTHONPATH := src
 
-.PHONY: install demo generate run late test lint reset
+.PHONY: install hooks ci demo generate run late test lint reset
 
 install:
 	$(PY) -m pip install -e ".[dev]"
+
+## Run local CI before every push (lint + tests + pipeline smoke run)
+hooks:
+	git config core.hooksPath .githooks
+	@echo "pre-push hook enabled: every git push now runs scripts/ci.sh"
+
+ci:
+	bash scripts/ci.sh
 
 ## Full story in one command: first delivery -> rerun (idempotent) -> late file arrives
 demo: reset
