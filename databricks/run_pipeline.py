@@ -52,8 +52,14 @@ from msp.generate import generate
 from msp.settings import Settings
 
 settings = Settings()
-written = generate(settings.landing_dir, late=True)
-print(f"{len(written)} files in {settings.landing_dir}")
+# Write the sample files only once: rewriting them would change their modification
+# time, and bronze would (correctly) treat them as re-delivered files.
+existing = list(settings.landing_dir.glob("*/*")) if settings.landing_dir.exists() else []
+if existing:
+    print(f"{len(existing)} files already in {settings.landing_dir}")
+else:
+    written = generate(settings.landing_dir, late=True)
+    print(f"{len(written)} files written to {settings.landing_dir}")
 
 # COMMAND ----------
 

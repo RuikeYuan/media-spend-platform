@@ -217,18 +217,19 @@ def staged(env: SparkEnv, source: str, contract: dict) -> DataFrame:
         _clean_number(_field(cols["clicks"]), dec).alias("_clicks_raw"),
         _clean_number(_field(cols["spend"]), dec).alias("_spend_raw"),
         currency.alias("currency"))
-    df.createOrReplaceTempView("_stg")
     # try_* functions return NULL for unparseable input instead of failing the job,
     # which is what lets bad rows be quarantined rather than crash the pipeline.
-    return env.spark.sql(f"""
-        SELECT source, file_name, ingested_at, row_id, payload,
-               CAST(try_to_timestamp(_date_raw, '{fmt}') AS DATE) AS activity_date,
-               campaign_id, channel_raw, publisher,
-               try_cast(_imps_raw AS BIGINT)        AS impressions,
-               try_cast(_clicks_raw AS BIGINT)      AS clicks,
-               try_cast(_spend_raw AS DECIMAL(18,2)) AS spend_local,
-               currency
-        FROM _stg""")
+    # selectExpr on the DataFrame itself, NOT a temp view: under Spark Connect
+    # (Databricks serverless) a view is resolved when the query runs, so one shared
+    # view name reused in a loop would make every source read the last one.
+    return df.selectExpr(
+        "source", "file_name", "ingested_at", "row_id", "payload",
+        f"CAST(try_to_timestamp(_date_raw, '{fmt}') AS DATE) AS activity_date",
+        "campaign_id", "channel_raw", "publisher",
+        "try_cast(_imps_raw AS BIGINT) AS impressions",
+        "try_cast(_clicks_raw AS BIGINT) AS clicks",
+        "try_cast(_spend_raw AS DECIMAL(18,2)) AS spend_local",
+        "currency")
 
 
 def _clean_number(col: Column, decimal_separator: str) -> Column:
