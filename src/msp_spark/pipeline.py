@@ -53,7 +53,8 @@ class SparkEnv:
 
     @classmethod
     def create(cls, catalog: str | None = None, schema: str = "media_spend") -> SparkEnv:
-        on_dbx = "DATABRICKS_RUNTIME_VERSION" in os.environ
+        on_dbx = "DATABRICKS_RUNTIME_VERSION" in os.environ or "DB_HOME" in os.environ \
+            or os.path.isdir("/databricks")
         if on_dbx:
             spark = SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
         else:
@@ -271,11 +272,9 @@ def build_silver(env: SparkEnv, contracts: dict) -> SilverResult:
                F.concat(F.lit("unmapped_channel:"), F.coalesce(F.col("channel_raw"), F.lit("null")))),
         F.when(F.col("activity_date").isNotNull() & F.col("rate_to_eur").isNull(),
                F.concat(F.lit("missing_fx_rate:"), F.coalesce(F.col("currency"), F.lit("null")))))
+    # No cache()/persist(): Databricks serverless rejects PERSIST TABLE, and at this
+    # size recomputing the plan is cheaper than managing a cache.
     v = v.withColumn("reject_reason", F.nullif(reasons, F.lit("")))
-    # Caching saves recomputation locally; Databricks serverless does not allow
-    # persist/cache (it manages caching itself), so only cache off-Databricks.
-    if not env.on_databricks:
-        v = v.cache()
 
     quarantine = (v.where(F.col("reject_reason").isNotNull())
                    .select("source", "file_name", "row_id", "reject_reason", "payload"))
@@ -291,8 +290,6 @@ def build_silver(env: SparkEnv, contracts: dict) -> SilverResult:
                        F.col("file_name").alias("loaded_file_name"), F.col("row_id").alias("loaded_row_id")))
     s = env.write(silver, "silver_media_spend")
     staged_rows = v.count()
-    if not env.on_databricks:
-        v.unpersist()
     return SilverResult(staged_rows, q, staged_rows - q - s, s)
 
 

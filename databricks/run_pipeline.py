@@ -28,7 +28,11 @@ from pathlib import Path
 
 # The notebook lives in <repo>/databricks/, so the repo root is one level up.
 REPO = Path(os.getcwd()).parent
-sys.path.insert(0, str(REPO / "src"))
+if str(REPO / "src") not in sys.path:
+    sys.path.insert(0, str(REPO / "src"))
+# After a Git pull, make sure this session imports the new code, not a cached module.
+for name in [m for m in sys.modules if m == "msp" or m.startswith(("msp.", "msp_spark"))]:
+    del sys.modules[name]
 
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
 spark.sql(f"CREATE VOLUME IF NOT EXISTS {CATALOG}.{SCHEMA}.files")
