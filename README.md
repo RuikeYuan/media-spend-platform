@@ -175,7 +175,12 @@ bash deploy/azure/deploy.sh      # ~10 min the first time
 bash deploy/azure/teardown.sh    # removes everything again
 ```
 
-`deploy.sh` builds the image in Azure (ACR Tasks, no local Docker), creates a
+Free-trial subscriptions are not allowed to run ACR Tasks (cloud image builds);
+the script detects this, removes the registry and runs the job on
+`python:3.12-slim`, fetching the code from GitHub at start-up. The default region
+is Sweden Central because West Europe refuses new free subscriptions.
+
+Otherwise `deploy.sh` builds the image in Azure (ACR Tasks, no local Docker), creates a
 consumption-plan Container Apps environment and a **scheduled job** that runs
 daily at 06:00 UTC, then starts one run immediately and waits for the result.
 The job's exit code is the pipeline status, so a failed data quality gate shows
