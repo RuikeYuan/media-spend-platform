@@ -11,7 +11,7 @@ design decision maps 1:1 onto a cloud lakehouse (see *Path to production*).
 ```bash
 pip install -e ".[dev]"
 make demo     # first delivery → idempotent rerun → late file arrives
-make test     # 19 unit + end-to-end tests
+make test     # 19 unit + end-to-end tests (+6 Spark parity tests with pyspark installed)
 make hooks    # run local CI automatically before every git push
 open data/reports/latest.html
 ```
@@ -117,6 +117,38 @@ It runs in two places:
 Keeping the logic in one script means the hosted CI is a thin wrapper and can
 be swapped (Azure DevOps, GitLab CI, Jenkins) without changing the checks.
 
+## PySpark / Databricks version
+
+`src/msp_spark/` implements the same pipeline on **Spark**, so it scales past one
+machine and runs on **Databricks** with **Delta Lake** tables in Unity Catalog.
+It reuses the same data contracts and the same YAML quality checks (one check
+carries a `spark_sql` variant where the dialects differ), and
+`tests/test_spark_pipeline.py` asserts that both engines produce **identical
+results**: same row counts per layer, same quarantined rows, same total spend to
+the cent, same check outcomes.
+
+| Concern | DuckDB version | Spark version |
+|---|---|---|
+| Bronze | JSON payload per row, SHA-256 per file | `to_json(struct(*))` payload, `_metadata.file_name` / modification time per file |
+| Bad values | `TRY_CAST`, `try_strptime` | `try_cast`, `try_to_timestamp` (safe under ANSI mode, the Databricks default) |
+| Latest delivery wins | `row_number()` window | same window via `Window.partitionBy(...)` |
+| Gold | `sql/gold/*.sql` | `sql/gold_spark/*.sql` (Spark SQL) |
+| Tables | DuckDB file | Parquet locally, **Delta** on Databricks (versioned: `DESCRIBE HISTORY`) |
+| Incremental at scale | full rebuild | full rebuild; `MERGE_SILVER_SQL` shows the Delta `MERGE` upsert for new files |
+
+```bash
+pip install -e ".[spark]"          # needs Java 17+
+python -m msp_spark.pipeline       # local Spark
+```
+
+**On Databricks** (works on the free edition, serverless compute):
+1. Workspace → *Create* → *Git folder* → `https://github.com/RuikeYuan/media-spend-platform`
+2. Open `databricks/run_pipeline.py` and *Run all*. It creates schema
+   `workspace.media_spend`, a volume as the landing zone, lands the sample
+   deliveries there and runs bronze → silver → gold → checks on Delta tables.
+3. To schedule it: `databricks bundle deploy` (see `databricks.yml`), which
+   creates a daily job that fails, and alerts, on an error-level check.
+
 ## Deployment
 
 The pipeline is a batch job: it starts, processes whatever new files have
@@ -183,6 +215,9 @@ production the landing zone would be ADLS or an Azure Files share mounted at
 config/            sources.yml (data contracts), quality_checks.yml, seeds/
 sql/gold/          dimensional model + mart
 src/msp/           generate, ingest, transform, quality, monitor, pipeline (CLI)
+src/msp_spark/     the same pipeline in PySpark (Delta Lake on Databricks)
+sql/gold_spark/    gold models in Spark SQL
+databricks/        notebook entry point;  databricks.yml  Asset Bundle job
 tests/             quality-engine unit tests + end-to-end pipeline tests
 scripts/ci.sh      CI gates (lint, tests, pipeline smoke run)
 .githooks/         pre-push hook that runs scripts/ci.sh

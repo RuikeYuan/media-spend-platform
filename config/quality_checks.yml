@@ -65,7 +65,7 @@ checks:
     type: metric
     description: "Share of incoming rows rejected by hard validation rules"
     sql: >
-      SELECT (SELECT count(*) FROM quarantine_media_rows)::DOUBLE
+      SELECT CAST((SELECT count(*) FROM quarantine_media_rows) AS DOUBLE)
              / nullif((SELECT count(*) FROM bronze_raw), 0)
     max: 0.05
     severity: error
@@ -83,6 +83,10 @@ checks:
     sql: >
       SELECT max(lag_days) FROM (
         SELECT (SELECT max(activity_date) FROM silver_media_spend) - max(activity_date) AS lag_days
+        FROM silver_media_spend GROUP BY source)
+    spark_sql: >
+      SELECT max(lag_days) FROM (
+        SELECT datediff((SELECT max(activity_date) FROM silver_media_spend), max(activity_date)) AS lag_days
         FROM silver_media_spend GROUP BY source)
     max: 1
     severity: warn

@@ -13,8 +13,8 @@
 # Re-running the script is safe: names are derived from your subscription id.
 set -euo pipefail
 
-LOCATION="${LOCATION:-westeurope}"
-RG="${RG:-rg-media-spend-platform}"
+LOCATION="${LOCATION:-swedencentral}"
+RG="${RG:-rg-msp}"
 SUFFIX="$(az account show --query id -o tsv | tr -d '-' | cut -c1-8)"
 ACR="${ACR:-acrmsp${SUFFIX}}"
 ENV_NAME="${ENV_NAME:-cae-media-spend}"

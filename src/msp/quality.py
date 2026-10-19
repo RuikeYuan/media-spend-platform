@@ -2,12 +2,18 @@
 
 Each check returns a CheckResult; results are persisted to `dq_results` so data
 quality is itself queryable over time (trend of failures, flaky feeds, etc.).
+
+The engine only needs `con.execute(sql)` returning an object with fetchone() /
+fetchall(), so the same checks run on DuckDB and on Spark (see msp_spark). A check
+can carry an engine-specific `spark_sql` when the dialects differ.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-import duckdb
+if TYPE_CHECKING:  # duckdb is only needed by the DuckDB pipeline
+    import duckdb
 
 
 @dataclass
@@ -110,20 +116,28 @@ def ensure_tables(con: duckdb.DuckDBPyConnection) -> None:
         )""")
 
 
-def run_checks(con: duckdb.DuckDBPyConnection, checks: list[dict], run_id: str) -> list[CheckResult]:
-    ensure_tables(con)
+def evaluate(con, checks: list[dict], engine: str = "duckdb") -> list[CheckResult]:
+    """Run every check and return the results, without persisting anything."""
     results = []
     for c in checks:
         fn = CHECKS.get(c["type"])
         if fn is None:
             raise ValueError(f"Unknown check type {c['type']!r} in {c['name']}")
+        if engine == "spark" and "spark_sql" in c:
+            c = {**c, "sql": c["spark_sql"]}
         try:
             passed, observed, details = fn(con, c)
         except Exception as exc:  # a broken check must fail loudly, not pass silently
             passed, observed, details = False, None, f"check errored: {exc}"
-        r = CheckResult(c["name"], c["type"], c.get("severity", "error"), bool(passed),
-                        None if observed is None else float(observed), details)
-        results.append(r)
+        results.append(CheckResult(c["name"], c["type"], c.get("severity", "error"), bool(passed),
+                                   None if observed is None else float(observed), details))
+    return results
+
+
+def run_checks(con: duckdb.DuckDBPyConnection, checks: list[dict], run_id: str) -> list[CheckResult]:
+    ensure_tables(con)
+    results = evaluate(con, checks)
+    for r in results:
         con.execute("INSERT INTO dq_results VALUES (?, ?, ?, ?, ?, ?, ?, current_timestamp)",
                     [run_id, r.name, r.type, r.severity, r.status, r.observed, r.details])
     return results

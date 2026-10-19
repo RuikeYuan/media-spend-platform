@@ -1,0 +1,31 @@
+# Databricks Asset Bundle: deploys the pipeline as a scheduled job.
+#   databricks bundle validate
+#   databricks bundle deploy          # creates/updates the job in your workspace
+#   databricks bundle run media_spend_pipeline
+# The notebook task runs on serverless compute (no cluster to manage).
+bundle:
+  name: media-spend-platform
+
+resources:
+  jobs:
+    media_spend_pipeline:
+      name: media-spend-pipeline
+      schedule:
+        quartz_cron_expression: "0 0 6 * * ?"   # daily 06:00 UTC
+        timezone_id: UTC
+        pause_status: PAUSED                     # unpause when the landing zone is live
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: bronze_silver_gold_quality
+          notebook_task:
+            notebook_path: ./databricks/run_pipeline.py
+            base_parameters:
+              catalog: workspace
+              schema: media_spend
+      email_notifications:
+        on_failure: []                           # add the team address here
+
+targets:
+  dev:
+    mode: development
+    default: true
