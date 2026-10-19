@@ -117,6 +117,26 @@ It runs in two places:
 Keeping the logic in one script means the hosted CI is a thin wrapper and can
 be swapped (Azure DevOps, GitLab CI, Jenkins) without changing the checks.
 
+## Deployment
+
+The pipeline is a batch job: it starts, processes whatever new files have
+landed, and exits with a status code. It ships as one container image.
+
+```bash
+docker build -t media-spend-platform .
+docker run --rm -v "$PWD/data:/data" media-spend-platform generate --late
+docker run --rm -v "$PWD/data:/data" media-spend-platform run      # exit 0 ok, 1 DQ failure, 2 crash
+```
+
+All paths come from environment variables (`MSP_DATA_DIR`, `MSP_CONFIG_DIR`,
+`MSP_SQL_DIR`), so the same image runs locally, in CI and in the cloud. The
+image runs as a non-root user and keeps all state on the mounted `/data` volume.
+
+On Azure this maps to a **Container Apps Job** on a cron schedule (for example
+hourly), with `/data` on an Azure Files share (or landing files in ADLS) and the
+run report published after each run. The exit code drives alerting: a failed
+data quality gate fails the job execution, which Azure Monitor can alert on.
+
 ## Design choices and trade-offs
 
 | Choice | Why | Trade-off / at scale |

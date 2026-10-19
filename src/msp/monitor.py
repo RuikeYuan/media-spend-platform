@@ -77,13 +77,20 @@ def alert(level: str, message: str, log=print) -> None:
 
 # ------------------------------------------------------------------ report --
 CSS = """
-:root{--bg:#fafaf8;--fg:#1d1d1b;--muted:#6b6b66;--line:#e4e3de;--card:#fff;
---pass:#1f7a4d;--warn:#a86400;--fail:#b3261e;--accent:#2d4a7a}
-@media (prefers-color-scheme:dark){:root{--bg:#161615;--fg:#ecebe6;--muted:#a3a29c;
---line:#2e2e2b;--card:#1e1e1c;--pass:#5cc08f;--warn:#e6a54a;--fail:#f2786e;--accent:#8fb0e6}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
-font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
-main{max-width:1080px;margin:0 auto;padding:32px 16px 64px}
+/* Layout: one reading column, summary tiles first, then detail tables that scroll sideways on phones */
+:root{--bg:#f6f7f9;--fg:#18202b;--muted:#5d6878;--line:#dfe3ea;--card:#ffffff;
+--pass:#1d7a4f;--warn:#9a5b00;--fail:#b3261e;--accent:#2b4f86;
+--font-body:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+--font-data:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#11151b;--fg:#e6e9ee;--muted:#98a2b1;
+--line:#262d38;--card:#171c24;--pass:#5cc08f;--warn:#e3a54e;--fail:#f2786e;--accent:#8fb0e6;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#11151b;--fg:#e6e9ee;--muted:#98a2b1;--line:#262d38;--card:#171c24;
+--pass:#5cc08f;--warn:#e3a54e;--fail:#f2786e;--accent:#8fb0e6;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--font-body)}
+main{max-width:1080px;margin:0 auto;padding-block:32px 64px;
+padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1{text-wrap:balance}a{color:var(--accent)}.note{color:var(--muted);font-size:13px;margin:8px 0 0}
+td.n,.kpi b{font-family:var(--font-data)}
 h1{font-size:24px;margin:0 0 4px}h2{font-size:16px;margin:36px 0 10px;text-transform:uppercase;
 letter-spacing:.06em;color:var(--muted)}.sub{color:var(--muted);margin:0 0 24px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
@@ -132,12 +139,20 @@ def write_report(con, run_id: str, reports_dir: Path) -> Path:
                (SELECT count(*) FROM ingestion_log WHERE status = 'loaded')
     """).fetchone()
 
-    parts = [f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pipeline Run Report</title><style>{CSS}</style></head><body><main>
+    # Written as a page fragment (title, styles, content): opens directly in any browser
+    # and can be published as-is to a host that supplies the document skeleton.
+    parts = [f"""<title>Media Spend Pipeline Report</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>{CSS}</style>
+<main>
 <h1>Media spend pipeline · run {html.escape(run_id)}</h1>
 <p class="sub"><span class="pill {run[0]}">{run[0]}</span> &nbsp;started {run[1]:%Y-%m-%d %H:%M:%S}
  · {html.escape(run[3] or '')}</p>
+<p class="note">Sample data: three fictional agencies, September 2026, with known problems injected on purpose.
+Source: <a href="https://github.com/RuikeYuan/media-spend-platform">github.com/RuikeYuan/media-spend-platform</a></p>
 <div class="kpis">
 <div class="kpi"><b>{kpi[4]:,}</b><span>files loaded (all time)</span></div>
 <div class="kpi"><b>{kpi[0]:,}</b><span>bronze rows</span></div>
@@ -172,7 +187,7 @@ def write_report(con, run_id: str, reports_dir: Path) -> Path:
     hist = con.execute("""SELECT run_id, strftime(started_at, '%Y-%m-%d %H:%M:%S'), status, summary
                           FROM pipeline_runs ORDER BY started_at DESC LIMIT 10""").fetchall()
     parts.append("<h2>Recent runs</h2>" + _table(["run", "started", "status", "summary"], hist))
-    parts.append("</main></body></html>")
+    parts.append("</main>")
 
     out = reports_dir / f"run_{run_id}.html"
     out.write_text("\n".join(parts))
