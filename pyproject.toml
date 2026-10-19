@@ -1,0 +1,33 @@
+[project]
+name = "media-spend-platform"
+version = "0.1.0"
+description = "Multi-agency media spend ELT pipeline: contracts, medallion layers, data quality, monitoring"
+requires-python = ">=3.10"
+dependencies = ["duckdb>=1.0", "pyyaml>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+msp = "msp.pipeline:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 140
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["msp", "conftest"]

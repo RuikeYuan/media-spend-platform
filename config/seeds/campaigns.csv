@@ -1,0 +1,10 @@
+campaign_id,campaign_name,advertiser,brand,market,agency_source
+NL-1001,Autumn Launch,Brightline Foods,Crunchy Oats,NL,agency_alpha
+NL-1002,Always-on Brand,Brightline Foods,Brightline,NL,agency_alpha
+NL-1003,Black Friday Teaser,Velo Mobility,Velo E-Bike,NL,agency_alpha
+UK-2001,Back to School,Harbour Telecom,Harbour 5G,UK,agency_bravo
+UK-2002,Brand Awareness,Brightline Foods,Crunchy Oats,UK,agency_bravo
+UK-2003,Retention Push,Harbour Telecom,Harbour Broadband,UK,agency_bravo
+US-3001,Fall Collection,Northpeak Apparel,Northpeak,US,agency_charlie
+US-3002,Holiday Preview,Northpeak Apparel,Northpeak Kids,US,agency_charlie
+US-3003,Performance Always-on,Velo Mobility,Velo E-Bike,US,agency_charlie

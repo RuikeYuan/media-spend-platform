@@ -1,0 +1,100 @@
+# Declarative data quality checks, run after every load.
+# severity: error -> run is marked FAILED and exits non-zero (blocks CI / downstream)
+#           warn  -> run succeeds with warnings and an alert is raised
+
+checks:
+  # --- Silver: integrity of the cleaned, deduplicated layer -------------------
+  - name: silver_keys_not_null
+    type: not_null
+    table: silver_media_spend
+    columns: [activity_date, campaign_id, channel, publisher, spend_eur]
+    severity: error
+
+  - name: silver_unique_grain
+    type: unique
+    table: silver_media_spend
+    columns: [source, activity_date, campaign_id, channel, publisher]
+    severity: error
+
+  - name: silver_channel_accepted_values
+    type: accepted_values
+    table: silver_media_spend
+    column: channel
+    values: [TV, ONLINE_VIDEO, SOCIAL, SEARCH, OOH, DISPLAY]
+    severity: error
+
+  - name: clicks_not_above_impressions
+    type: expression
+    table: silver_media_spend
+    expression: "clicks <= impressions"
+    severity: warn
+
+  # --- Gold: model integrity ---------------------------------------------------
+  - name: fact_campaign_fk
+    type: relationship
+    table: fact_media_spend
+    column: campaign_id
+    to_table: dim_campaign
+    to_column: campaign_id
+    severity: error
+
+  - name: fact_date_fk
+    type: relationship
+    table: fact_media_spend
+    column: date_key
+    to_table: dim_date
+    to_column: date_key
+    severity: error
+
+  - name: spend_reconciles_silver_to_fact
+    type: reconcile
+    left_sql: "SELECT sum(spend_eur) FROM silver_media_spend"
+    right_sql: "SELECT sum(spend_eur) FROM fact_media_spend"
+    tolerance: 0.01
+    severity: error
+
+  - name: spend_reconciles_fact_to_mart
+    type: reconcile
+    left_sql: "SELECT sum(spend_eur) FROM fact_media_spend"
+    right_sql: "SELECT sum(spend_eur) FROM mart_advertiser_monthly"
+    tolerance: 0.01
+    severity: error
+
+  # --- Operational / statistical checks ---------------------------------------
+  - name: quarantine_rate_below_5pct
+    type: metric
+    description: "Share of incoming rows rejected by hard validation rules"
+    sql: >
+      SELECT (SELECT count(*) FROM quarantine_media_rows)::DOUBLE
+             / nullif((SELECT count(*) FROM bronze_raw), 0)
+    max: 0.05
+    severity: error
+
+  - name: inferred_campaigns
+    type: metric
+    description: "Campaign IDs delivered by agencies that are missing from the campaign master"
+    sql: "SELECT count(*) FROM dim_campaign WHERE is_inferred"
+    max: 0
+    severity: warn
+
+  - name: source_freshness_lag_days
+    type: metric
+    description: "Days the most-behind agency lags the most recent delivery"
+    sql: >
+      SELECT max(lag_days) FROM (
+        SELECT (SELECT max(activity_date) FROM silver_media_spend) - max(activity_date) AS lag_days
+        FROM silver_media_spend GROUP BY source)
+    max: 1
+    severity: warn
+
+  - name: spend_spike_rows
+    type: metric
+    description: "Rows whose spend is >10x the median for the same source and channel (likely fat-finger)"
+    sql: >
+      WITH med AS (
+        SELECT source, channel, median(spend_eur) AS med_spend
+        FROM silver_media_spend GROUP BY ALL)
+      SELECT count(*) FROM silver_media_spend s JOIN med USING (source, channel)
+      WHERE s.spend_eur > 10 * med.med_spend
+    max: 0
+    severity: warn

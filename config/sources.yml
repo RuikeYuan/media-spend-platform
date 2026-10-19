@@ -1,0 +1,75 @@
+# Data contracts: one entry per agency feed.
+# Every agency delivers the same business facts (daily media delivery and cost)
+# in its own layout. The contract maps each feed onto the canonical schema, so
+# adding a new agency is a config change, not a code change.
+#
+# Canonical fields: activity_date, campaign_id, channel, publisher,
+#                   impressions, clicks, spend (+ currency)
+
+agency_alpha:
+  description: "Netherlands agency, weekly CSV export, costs in EUR"
+  format: csv
+  delimiter: ","
+  file_pattern: "*.csv"
+  date_format: "%Y-%m-%d"
+  decimal_separator: "."
+  currency: EUR                 # fixed currency for the whole feed
+  columns:
+    activity_date: "Date"
+    campaign_id: "Campaign ID"
+    channel: "Channel"
+    publisher: "Publisher"
+    impressions: "Impressions"
+    clicks: "Clicks"
+    spend: "Net Cost (EUR)"
+  channel_map:
+    tv: TV
+    online video: ONLINE_VIDEO
+    social: SOCIAL
+    search: SEARCH
+    ooh: OOH
+
+agency_bravo:
+  description: "UK agency, weekly semicolon CSV with decimal commas, costs in GBP"
+  format: csv
+  delimiter: ";"
+  file_pattern: "*.csv"
+  date_format: "%d/%m/%Y"
+  decimal_separator: ","
+  columns:
+    activity_date: "day"
+    campaign_id: "campaign_code"
+    channel: "media_type"
+    publisher: "vendor"
+    impressions: "imps"
+    clicks: "clicks"
+    spend: "spend"
+    currency: "currency"        # currency delivered per row
+  channel_map:
+    television: TV
+    olv: ONLINE_VIDEO
+    social media: SOCIAL
+    paid search: SEARCH
+    out-of-home: OOH
+
+agency_charlie:
+  description: "US agency, JSON-lines export from their buying platform, costs in USD"
+  format: jsonl
+  file_pattern: "*.jsonl"
+  date_format: "%m/%d/%Y"
+  decimal_separator: "."
+  currency: USD
+  columns:
+    activity_date: "date"
+    campaign_id: "campaignId"
+    channel: "mediaChannel"
+    publisher: "site"
+    impressions: "impressions"
+    clicks: "clicks"
+    spend: "costUsd"
+  channel_map:
+    linear tv: TV
+    video: ONLINE_VIDEO
+    social: SOCIAL
+    sem: SEARCH
+    display: DISPLAY
