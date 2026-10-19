@@ -35,38 +35,87 @@ az extension add --name containerapp --upgrade --yes --output none 2>/dev/null |
 say "Resource group $RG"
 az group create --name "$RG" --location "$LOCATION" --output none
 
+# Image: build our Dockerfile in Azure (ACR Tasks). Free-trial subscriptions are not
+# allowed to run ACR Tasks, so if the build is refused we fall back to the public
+# python image and fetch the code from GitHub when the job starts (no registry at all).
+MODE="registry"
 say "Container registry $ACR"
 if ! az acr show --name "$ACR" --resource-group "$RG" --output none 2>/dev/null; then
   az acr create --name "$ACR" --resource-group "$RG" --location "$LOCATION" \
-    --sku Basic --admin-enabled true --output none
+    --sku Basic --admin-enabled true --output none || MODE="source"
 fi
-
-say "Building image $IMAGE in Azure (ACR Tasks)"
-az acr build --registry "$ACR" --image "$IMAGE" --image "msp:latest" . --output none
+if [ "$MODE" = "registry" ]; then
+  say "Building image $IMAGE in Azure (ACR Tasks)"
+  if ! az acr build --registry "$ACR" --image "$IMAGE" --image "msp:latest" . --output none; then
+    MODE="source"
+    echo "ACR Tasks not available on this subscription: removing the unused registry and"
+    echo "running the job on python:3.12-slim with the code fetched from GitHub instead."
+    az acr delete --name "$ACR" --resource-group "$RG" --yes --output none || true
+  fi
+fi
 
 say "Container Apps environment $ENV_NAME"
 if ! az containerapp env show --name "$ENV_NAME" --resource-group "$RG" --output none 2>/dev/null; then
   az containerapp env create --name "$ENV_NAME" --resource-group "$RG" --location "$LOCATION" --output none
 fi
+ENV_ID="$(az containerapp env show --name "$ENV_NAME" --resource-group "$RG" --query id -o tsv)"
 
-ACR_SERVER="$(az acr show --name "$ACR" --query loginServer -o tsv)"
-ACR_USER="$(az acr credential show --name "$ACR" --query username -o tsv)"
-ACR_PASS="$(az acr credential show --name "$ACR" --query 'passwords[0].value' -o tsv)"
-
-say "Scheduled job $JOB (cron: $CRON UTC)"
-if az containerapp job show --name "$JOB" --resource-group "$RG" --output none 2>/dev/null; then
-  az containerapp job update --name "$JOB" --resource-group "$RG" \
-    --image "$ACR_SERVER/$IMAGE" --output none
+SPEC="$(mktemp --suffix .yaml)"
+if [ "$MODE" = "registry" ]; then
+  ACR_SERVER="$(az acr show --name "$ACR" --query loginServer -o tsv)"
+  ACR_USER="$(az acr credential show --name "$ACR" --query username -o tsv)"
+  ACR_PASS="$(az acr credential show --name "$ACR" --query 'passwords[0].value' -o tsv)"
+  cat > "$SPEC" <<EOF
+location: $LOCATION
+properties:
+  environmentId: $ENV_ID
+  configuration:
+    triggerType: Schedule
+    replicaTimeout: 900
+    replicaRetryLimit: 0
+    scheduleTriggerConfig: {cronExpression: "$CRON", parallelism: 1, replicaCompletionCount: 1}
+    secrets: [{name: acr-password, value: "$ACR_PASS"}]
+    registries: [{server: $ACR_SERVER, username: $ACR_USER, passwordSecretRef: acr-password}]
+  template:
+    containers:
+      - name: pipeline
+        image: $ACR_SERVER/$IMAGE
+        command: [msp]
+        args: [demo]
+        resources: {cpu: 0.5, memory: 1Gi}
+EOF
 else
-  az containerapp job create --name "$JOB" --resource-group "$RG" --environment "$ENV_NAME" \
-    --trigger-type Schedule --cron-expression "$CRON" \
-    --replica-timeout 900 --replica-retry-limit 0 --replica-completion-count 1 --parallelism 1 \
-    --image "$ACR_SERVER/$IMAGE" \
-    --registry-server "$ACR_SERVER" --registry-username "$ACR_USER" --registry-password "$ACR_PASS" \
-    --cpu 0.5 --memory 1Gi \
-    --command "msp" --args "demo" \
-    --output none
+  cat > "$SPEC" <<EOF
+location: $LOCATION
+properties:
+  environmentId: $ENV_ID
+  configuration:
+    triggerType: Schedule
+    replicaTimeout: 900
+    replicaRetryLimit: 0
+    scheduleTriggerConfig: {cronExpression: "$CRON", parallelism: 1, replicaCompletionCount: 1}
+  template:
+    containers:
+      - name: pipeline
+        image: docker.io/library/python:3.12-slim
+        command: [/bin/sh, -c]
+        args:
+          - |
+            set -e
+            python -c "import io, urllib.request, zipfile; zipfile.ZipFile(io.BytesIO(urllib.request.urlopen('https://github.com/RuikeYuan/media-spend-platform/archive/refs/heads/main.zip').read())).extractall('/tmp')"
+            cd /tmp/media-spend-platform-main
+            pip install --quiet --root-user-action=ignore duckdb pyyaml
+            MSP_DATA_DIR=/tmp/data PYTHONPATH=src python -m msp.pipeline demo
+        resources: {cpu: 0.5, memory: 1Gi}
+EOF
 fi
+
+say "Scheduled job $JOB (cron: $CRON UTC, image mode: $MODE)"
+if az containerapp job show --name "$JOB" --resource-group "$RG" --output none 2>/dev/null; then
+  az containerapp job delete --name "$JOB" --resource-group "$RG" --yes --output none
+fi
+az containerapp job create --name "$JOB" --resource-group "$RG" --yaml "$SPEC" --output none
+rm -f "$SPEC"
 
 say "Starting one run now"
 EXECUTION="$(az containerapp job start --name "$JOB" --resource-group "$RG" --query name -o tsv)"
