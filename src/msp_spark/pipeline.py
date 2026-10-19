@@ -271,7 +271,11 @@ def build_silver(env: SparkEnv, contracts: dict) -> SilverResult:
                F.concat(F.lit("unmapped_channel:"), F.coalesce(F.col("channel_raw"), F.lit("null")))),
         F.when(F.col("activity_date").isNotNull() & F.col("rate_to_eur").isNull(),
                F.concat(F.lit("missing_fx_rate:"), F.coalesce(F.col("currency"), F.lit("null")))))
-    v = v.withColumn("reject_reason", F.nullif(reasons, F.lit(""))).cache()
+    v = v.withColumn("reject_reason", F.nullif(reasons, F.lit("")))
+    # Caching saves recomputation locally; Databricks serverless does not allow
+    # persist/cache (it manages caching itself), so only cache off-Databricks.
+    if not env.on_databricks:
+        v = v.cache()
 
     quarantine = (v.where(F.col("reject_reason").isNotNull())
                    .select("source", "file_name", "row_id", "reject_reason", "payload"))
@@ -287,7 +291,8 @@ def build_silver(env: SparkEnv, contracts: dict) -> SilverResult:
                        F.col("file_name").alias("loaded_file_name"), F.col("row_id").alias("loaded_row_id")))
     s = env.write(silver, "silver_media_spend")
     staged_rows = v.count()
-    v.unpersist()
+    if not env.on_databricks:
+        v.unpersist()
     return SilverResult(staged_rows, q, staged_rows - q - s, s)
 
 
